@@ -9,4 +9,5 @@ I have provided here all relevant materials for understanding the context for th
   - __HBS Case- Predicting Customer Churn at QWE Inc.pdf__ - The HBR case study
   - __HBS Case- Predicting Customer Churn at QWE Inc.xlsx__ - The relevant customer data
   - __CodeSample_KCronin_Churn at QWE Inc.rmd__ - The code used to understand the problem, perform analysis, and then submit a recommendation for best model to use for predicting churn. 
+  - __Churn at QWE Inc.pdf__ - The .pdf output of the .rmd file.  Since this is intended to display my coding skills and style, I have kept in more of the coding than I normally would provide to end-users.
   - __Churn-at-QWE-Inc_KellyCronin2.html__ - The .html output of the .rmd file. 
