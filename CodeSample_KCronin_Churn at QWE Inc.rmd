@@ -1,0 +1,466 @@
+---
+title: "Churn at QWE Inc"
+author: "Kelly E. Cronin"
+date: "9/15/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+rm(list = ls())
+#N.B. for Windows machines, you may need to fully-qualify working directories in order for file access to work
+
+#setwd("E:/Manual Back-up/Desktop/MSBA/Fall Term/MSBA 70550 Marketing and Customer Analytics/Cases and Homework/Homework/02 - Churn")
+
+options(scipen=999)
+if (!require(tidyverse)) {
+  install.packages('tidyverse')
+}
+if (!require(readxl)) {
+  install.packages('readxl')
+}
+if (!require(corrplot)) {
+  install.packages('corrplot')
+}
+
+if (!require(ISLR)) {
+  install.packages('ISLR')
+}
+if (!require(Amelia)) {
+  install.packages('Amelia')
+}
+if (!require(DMwR)) {
+  install.packages('DMwR')
+}
+if (!require(speedglm)) {
+  install.packages('speedglm')
+}
+if (!require(InformationValue)) {
+  install.packages('InformationValue')
+}
+if (!require(caret)) {
+  install.packages('caret')
+}
+
+library(tidyverse)
+library(readxl)
+library(corrplot)
+library(ISLR)
+library(Amelia)
+library(DMwR)
+library(speedglm)
+library(InformationValue)
+library(caret)
+
+set.seed(1842)
+```
+
+# Customer Churn at QWE, Inc.
+
+This analysis looks at predicting customer churn at QWE, Inc.
+
+# Preparation
+## Data Preparation
+Load, prepare, explore, and analyze the QWE, Inc. data
+
+```{r qwe}
+# Read data
+qwe_orig <- read_excel("HBS Case- Predicting Customer Churn at QWE Inc.xlsx",sheet=2)#import data
+```
+
+## Initial Exploration
+```{r}
+glimpse(qwe_orig) 
+qwe<- qwe_orig
+colnames(qwe)[colnames(qwe)=="Customer Age (in months)"] <- "CustomerAge"
+colnames(qwe)[colnames(qwe)=="Churn (1 = Yes, 0 = No)"] <- "Churn"
+qwe<- qwe %>% 
+  mutate(
+    ID = as.character(ID),
+    Churn = as.factor(Churn),
+  )
+
+summary(qwe)
+glimpse(qwe)
+
+missmap(qwe, legend=FALSE)
+
+qwe %>%
+  keep(is.numeric) %>%
+  gather() %>%
+  ggplot() +
+  geom_histogram(mapping = aes(x=value,fill=key), color="black") +
+  facet_wrap(~ key, scales = "free") +
+  theme_minimal()
+```
+
+## Visualize Churn
+```{r}
+# Churn rate
+
+#Grouped by Customer Age, what is the average churn?
+qwe %>%
+  mutate(
+    ChurnAvg=mean(as.numeric(Churn))
+  ) %>% 
+  ggplot() + 
+  geom_col(aes(x=CustomerAge, y=ChurnAvg, fill=Churn))+
+  xlab("Customer Age (months)")+
+  ylab("Churn")
+```
+
+```{r}
+# Churn by customer age
+#How many people churn at each customer age?
+qwe %>% 
+  filter(Churn==1) %>% 
+  mutate(Churn=as.numeric(Churn)) %>% 
+  group_by(CustomerAge) %>% 
+  summarize(Churn = sum(Churn)) %>% 
+  ggplot() + 
+  geom_col(aes(x=CustomerAge, y=Churn, fill=Churn))
+```
+
+```{r} 
+ qwe %>% 
+  filter(Churn==1) %>% 
+  mutate(Churn=as.numeric(Churn)) %>% 
+  group_by(CustomerAge) %>% 
+  summarize(Churn = sum(Churn)) %>% 
+  arrange(-Churn) %>% 
+  head(n=1)
+```  
+Wall's intuition about customer age was generally correct: there is a lower instance of churn in customers after 14 months. 
+
+# Univariate Testing
+```{r Univariate Testing}
+qwe %>%
+  keep(is.numeric) %>%
+  cor() %>%
+  corrplot()
+
+lapply(c("CustomerAge","`CHI Score Month 0`","`CHI Score 0-1` ","`Support Cases Month 0`","`Support Cases 0-1`","`SP Month 0` ","`SP 0-1` ","`Logins 0-1` ","`Blog Articles 0-1` ","`Views 0-1` ","`Days Since Last Login 0-1`"),
+
+       function(var) {
+           formula    <- as.formula(paste("Churn ~", var))
+           res.logist <- glm(formula, data = qwe, family = binomial)
+           summary(res.logist)
+       })
+```
+List of significant attributes:  (Numbers correspond to the results above.)
+  1. "CustomerAge",
+  2. "`CHI Score Month 0`",
+  3. "`CHI Score 0-1` ",
+  4. "`Support Cases Month 0`",
+  6. "`SP Month 0` ",
+  8. "`Logins 0-1` ",
+  10. "`Views 0-1` ",
+  11. "`Days Since Last Login 0-1`"
+
+List of insignificant attributes:  
+  5. "`Support Cases 0-1`",
+  7. "`SP 0-1` ",
+  9. "`Blog Articles 0-1` "
+
+# Logistic Regression
+## Full Logistic Regression
+```{r}
+#Set the partitions.
+sample_set <- sample(nrow(qwe), round(nrow(qwe)*.75), replace = FALSE)
+qwe_train <- qwe[sample_set, ]
+qwe_test <- qwe[-sample_set, ]
+
+round(prop.table(table(dplyr::select(qwe, Churn), exclude = NULL)), 4) * 100
+round(prop.table(table(dplyr::select(qwe_train, Churn), exclude = NULL)), 4) * 100
+round(prop.table(table(dplyr::select(qwe_test, Churn), exclude = NULL)), 4) * 100
+
+#The proportions are roughly equal, so we do not need to further balance them.
+
+logit_mod <-
+  speedglm(Churn ~ CustomerAge +`CHI Score Month 0`+`CHI Score 0-1`+`Support Cases Month 0`+`Support Cases 0-1`+`SP Month 0`+`SP 0-1`+`Logins 0-1`+`Blog Articles 0-1`+`Views 0-1`+`Days Since Last Login 0-1`, family = binomial(), data = qwe_train)
+summary(logit_mod)
+```
+
+```{r Model 1 - AIC full}
+summary(logit_mod)$aic
+```
+
+## Reduced Model
+Variables included: 
+  * CustomerAge
+  * CHI Score Month 0
+  * CHI Score 0-1
+  * Support Cases Month 0
+  * SP Month 0
+  * Logins 0-1
+  * Views 0-1
+  * Days Since Last Login 0-1
+```{r}
+logit_reduced <-
+  speedglm(Churn ~ CustomerAge +`CHI Score Month 0`+`CHI Score 0-1`+`Support Cases Month 0`++`SP Month 0`+`Logins 0-1`+`Views 0-1`+`Days Since Last Login 0-1`, family = binomial(), data = qwe_train)
+summary(logit_reduced)
+```
+
+```{r Model 1 - AIC_reduced}
+summary(logit_reduced)$aic
+```
+Yes, the AIC of the reduced model is what I expected since it is lower than the AIC of the full model.  
+
+### Customer 399
+First, establish the predictive model and its cutoff.
+```{r}
+logit_pred <- predict(logit_mod, qwe_test, type = 'response')
+
+ideal_cutoff <-
+  optimalCutoff(
+    actuals = qwe_test$Churn,
+    predictedScores = logit_pred,
+    optimiseFor = "Both"
+  )
+
+ideal_cutoff
+```
+
+What did Customer 399 actually do?  They stayed.
+```{r}
+Customer_399<- qwe %>% 
+  filter(ID == "399")
+
+Customer_399$Churn
+```
+
+What does the model predict that they would do?
+```{r}
+logit_pred_399 <- predict(logit_mod, Customer_399, type = 'response')
+logit_pred_399
+
+logit_pred_399_result <- ifelse(logit_pred_399 > ideal_cutoff, 1, 0)
+logit_pred_399_result
+```
+The model predicts that Customer 399 will not leave. Their likelihood of churning is quite low at 1.897%, and that falls below the cutoff point of 6.806%. 
+
+
+## Customer 701
+What did Customer 701 actually do?  They stayed.
+```{r}
+# 701
+Customer_701<- qwe %>% 
+  filter(ID == "701")
+
+Customer_701$Churn
+```
+
+What does the model predict that they would do?
+```{r}
+logit_pred_701 <- predict(logit_mod, Customer_701, type = 'response')
+logit_pred_701
+
+logit_pred_701_result <- ifelse(logit_pred_701 > ideal_cutoff, 1, 0)
+logit_pred_701_result
+```
+The model predicts that Customer 701 will not leave. Their likelihood of churning is higher than Customer 399, but still low at 4.052%, and that falls below the cutoff point of 6.806%. 
+
+### Customer 5020
+What did Customer 5020 actually do?  They stayed.
+```{r}
+# 701
+Customer_5020<- qwe %>% 
+  filter(ID == "5020")
+
+Customer_5020$Churn
+```
+
+What does the model predict that they would do?
+```{r}
+logit_pred_5020 <- predict(logit_mod, Customer_5020, type = 'response')
+logit_pred_5020
+
+logit_pred_5020_result <- ifelse(logit_pred_5020 > ideal_cutoff, 1, 0)
+logit_pred_5020_result
+```
+The model predicts that Customer 5020 will not leave. Their likelihood of churning is quite low at 1.354%, and that falls below the cutoff point of 6.806%. 
+
+## Segment the Data
+Age:  
+  * 0 to 6 months -- they were a toss-up, 
+  * 6 to 14 months -- they were at particular risk of leaving,
+  * 14 or more months -- they are less likely to leave.
+
+CHI:
+  * High CHI scores will not likely leave
+  * Low CHI scores or scores that have dropped recently might leave
+
+Service:
+  * If has needed a lot of service or needed service for a serious issue (high SP), may just drop
+
+Log ins:
+  * Large number of log-ins, then less likely to leave.
+
+Blogs:
+  * If they write blogs, then less likely to leave
+  
+Views:
+  * More Views, less likely to leave
+
+```{r Exploring the variables, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+count(qwe)
+round(prop.table(table(dplyr::select(qwe, Churn), exclude = NULL)), 4) * 100
+
+qwe_at_risk1 <- filter(qwe, between(CustomerAge, 6, 14)) #Ages 6-14
+round(prop.table(table(dplyr::select(qwe_at_risk1, Churn), exclude = NULL)), 4) * 100
+
+qwe_at_risk2 <- filter(qwe,`CHI Score Month 0`<=232) #the max score for clients who churned was 231, so 232-298 is exclusively people who did not churn
+round(prop.table(table(dplyr::select(qwe_at_risk2, Churn), exclude = NULL)), 4) * 100 #The rate of churn for this subset is not drastically different than that of the qwe data as a whole.  Keep on eye on this one.
+
+qwe_at_risk3 <- filter(qwe,`CHI Score 0-1` < 0) #Customers whose happiness score has moved down
+round(prop.table(table(dplyr::select(qwe_at_risk3, Churn), exclude = NULL)), 4) * 100    
+
+qwe_at_risk_all <- distinct(rbind(qwe_at_risk1, qwe_at_risk3))
+count(qwe_at_risk_all)
+
+qwe_at_risk4 <- filter(qwe,`Support Cases Month 0`<=10) #The maximum number of service issues those who churned had before (presumably) dropping the service was 10
+round(prop.table(table(dplyr::select(qwe_at_risk4, Churn), exclude = NULL)), 4) * 100 #The rate of churn for this subset is not drastically different than that of the qwe data as a whole.  Keep on eye on this one, too.   
+
+qwe_at_risk5 <- filter(qwe,`Support Cases 0-1`< 9)
+round(prop.table(table(dplyr::select(qwe_at_risk5, Churn), exclude = NULL)), 4) * 100
+  
+qwe_at_risk6 <- filter(qwe,`SP Month 0`>=4)
+round(prop.table(table(dplyr::select(qwe_at_risk6, Churn), exclude = NULL)), 4) * 100
+    
+qwe_at_risk7 <- filter(qwe,`SP 0-1` != 0) #Most customers who stayed had no change in service priority after the first month, but there is enough overlap in the priority between those who churned and those who did not that it is difficult to be more precise than that.
+round(prop.table(table(dplyr::select(qwe_at_risk7, Churn), exclude = NULL)), 4) * 100
+
+qwe_at_risk8 <- filter(qwe,`Logins 0-1` < 75)
+round(prop.table(table(dplyr::select(qwe_at_risk8, Churn), exclude = NULL)), 4) * 100
+
+qwe_at_risk9 <- filter(qwe,`Blog Articles 0-1` < 8)
+round(prop.table(table(dplyr::select(qwe_at_risk9, Churn), exclude = NULL)), 4) * 100
+
+qwe_at_risk10 <- filter(qwe,`Views 0-1`< 200)
+round(prop.table(table(dplyr::select(qwe_at_risk10, Churn), exclude = NULL)), 4) * 100
+    
+qwe_at_risk11 <- filter(qwe,`Days Since Last Login 0-1` > 46)
+round(prop.table(table(dplyr::select(qwe_at_risk11, Churn), exclude = NULL)), 4) * 100
+```
+
+```{r}
+qwe_train2 <- qwe_train %>% 
+  filter(
+    between(CustomerAge,6,14),
+    `CHI Score Month 0`<=250,
+    `CHI Score 0-1` < 0,
+    `Support Cases Month 0`<=15,
+    `Support Cases 0-1`< 10,
+    `SP Month 0`>=1,
+    `SP 0-1` != 0,
+    `Logins 0-1` < 100,
+    `Blog Articles 0-1` < 10,
+    `Views 0-1`< 100,
+    `Days Since Last Login 0-1` > -4
+  )
+qwe_test2 <- anti_join(qwe, qwe_train2)
+```
+
+### Logistic Regression
+```{r Model 2 - Full}
+logit_mod2 <-
+  speedglm(Churn ~ CustomerAge +
+             `CHI Score Month 0`+
+             `CHI Score 0-1`+
+             `Support Cases Month 0`+
+             `Support Cases 0-1`+
+             `SP Month 0`+
+             `SP 0-1`+
+             `Logins 0-1`+
+             `Blog Articles 0-1`+
+             `Views 0-1`+
+             `Days Since Last Login 0-1`,
+    family = binomial(link = 'logit'),
+    data = qwe_train2
+  )
+summary(logit_mod2)$aic
+```
+```{r Model 2 - Reduced}
+logit_reduced2 <-
+  speedglm(Churn ~ CustomerAge +
+             `CHI Score Month 0`+
+             `CHI Score 0-1`+
+             `Support Cases Month 0`+
+             `SP Month 0`+
+             `Logins 0-1`+
+             `Views 0-1`+
+             `Days Since Last Login 0-1`, family = binomial(), data = qwe_train2)
+summary(logit_reduced2)
+```
+
+```{r Model 2 - AIC reduced}
+summary(logit_reduced2)$aic
+```
+The AIC still went down with the reduced model.
+
+
+#### Customer 399 in context
+First, establish the predictive model and its cutoff.
+```{r}
+logit_pred2 <- predict(logit_mod2, qwe_test2, type = 'response')
+
+ideal_cutoff2 <-
+  optimalCutoff(
+    actuals = qwe_test2$Churn,
+    predictedScores = logit_pred2,
+    optimiseFor = "Both",
+  )
+
+ideal_cutoff2
+```
+
+```{r Customer 399 - Predicted from Model 2}
+#399
+logit_pred_399b <- predict(logit_mod2, Customer_399, type = 'response')
+logit_pred_399b
+
+logit_pred_399b_result <- ifelse(logit_pred_399b > ideal_cutoff2, 1, 0)
+logit_pred_399b_result
+```
+The new model predicts that Customer 399 will leave with high likelihood.
+
+
+## Customer 701
+```{r Customer 701 - Predicted from Model 2}
+# 701
+logit_pred_701b <- predict(logit_mod2, Customer_701, type = 'response')
+logit_pred_701b
+
+logit_pred_701b_result <- ifelse(logit_pred_701b > ideal_cutoff2, 1, 0)
+logit_pred_701b_result
+```
+The new model predicts that Customer 701 will leave with high likelihood. 
+
+### Customer 5020
+```{r Customer 5020 - Predicted from Model 2}
+# 5020
+logit_pred_5020b <- predict(logit_mod2, Customer_5020, type = 'response')
+logit_pred_5020b
+
+logit_pred_5020b_result <- ifelse(logit_pred_5020b > ideal_cutoff2, 1, 0)
+logit_pred_5020b_result
+```
+The model predicts that Customer 5020 will leave with high likelihood.
+
+Model 2 is far too over-fitted to be of use for future predictions, and therefore resulted in false positives when testing on existing data.  Though Wall's intuitions anecdotally and, in some cases, individually make sense, there is not enough data to vertically combine each subset -- when I attempted this, I ended up back with all 6347 observations -- and when they are combined inclusively then the testing partition has too few observations.  
+
+## Top 10 Lists
+```{r 10 customers are the most likely to churn}
+logit_pred_10 <- predict(logit_mod, qwe, type = 'response')
+summary(logit_pred_10)
+qwe_pred<- qwe %>% 
+  mutate(ChurnPred = logit_pred_10)
+
+top_10<- qwe_pred %>% 
+  arrange(-ChurnPred) %>% 
+  head(n=10)
+top_10
+top_10$ChurnPred
+```
+
+I chose the reduced Model 1 because it did not suffer from over-fitting like Model 2 (full and reduced) did while maintaining a lower AIC than the full Model 1.  
